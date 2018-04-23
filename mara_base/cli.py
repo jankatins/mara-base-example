@@ -1,14 +1,28 @@
 """Mara admin command line interface"""
 
-import click
-import types
-import typing
-import sys
 import logging
+import os
+import sys
+
+import click
 
 log = logging.getLogger(__name__)
 
-_group = click.Group(help="""\
+
+def _add_syslog_handler():
+    """Adds a handler that the log produced by the CLI commands also got to systemd log"""
+    # This needs to be done in a function in each command as flask run will also import this files to have the
+    # click commands available
+    if os.name == 'posix':
+        import logging.handlers
+        # /dev/log is linux only (would need a different path on Mac, but who cares on dev machines...)
+        handler = logging.handlers.SysLogHandler(address='/dev/log')
+        # If it's added to this modules log, only log mesages in this module would be sent...
+        logging.root.addHandler(handler)
+
+
+
+@click.group(help="""\
 This shell command acts as general utility script for mara applications.
 
 All configured downloader will be available.
@@ -16,33 +30,60 @@ All configured downloader will be available.
 To run the webapp, use 'flask run'.
 
 """)
+@click.option('--debug/--no-debug', default=False)
+def cli(debug: bool):
+    # --debug is consumed by the setup_commandline_commands but it's here to let it show up in help and
+    pass
 
+def setup_commandline_commands():
+    """Needs to be run befor click itself is run so the config which contributes click comamnds is available"""
+    debug = '--debug' in sys.argv
+    print(debug)
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s %(levelname)s, %(name)s: %(message)s',
+                        datefmt='%Y-%m-%dT%H:%M:%S',
+                        stream=sys.stdout)
+    _add_syslog_handler()
 
-def register_declared_commands(self, module: types.ModuleType):
-    """Adds all declared click commands to the app, grouped by package
+    if debug:
+        logging.root.setLevel(logging.DEBUG)
+        log.debug("Enabled debug output via commandline")
 
-    You can declare click commands by adding a `MARA_CLICK_COMMANDS` property to
-    the module which contains a list of `@click.command()` decorated functions.
+    # Initialize the config system
+    from .config_system import add_config_from_environment, add_config_from_local_setup_py
+    add_config_from_local_setup_py()
+    add_config_from_environment()
 
-    Does nothing, if no `MARA_CLICK_COMMANDS` is declared in the module or the list is empty.
-    """
-    if not hasattr(module, 'MARA_CLICK_COMMANDS'):
-        return
-    commands = getattr(module, 'MARA_CLICK_COMMANDS')
-    assert (isinstance(commands, typing.Iterable))
-    for command in commands:
-        if 'callback' in command.__dict__ and command.__dict__['callback']:
+    # we try the second mechanism as well
+    from .config import debug
+    if debug():
+        logging.root.setLevel(logging.DEBUG)
+        log.debug("Enabled debug output via config")
+
+    from . import _call_app_composing_function
+    _call_app_composing_function()
+
+    from . import get_flattend_configuration
+    for module, command in get_flattend_configuration('MARA_CLICK_COMMANDS'):
+        if command and 'callback' in command.__dict__ and command.__dict__['callback']:
             package = command.__dict__['callback'].__module__.rpartition('.')[0]
             if package != 'flask':
                 command.name = package + '.' + command.name
-                _group.add_command(command)
+                cli.add_command(command)
 
 
 def main():
-    #log.setLevel(logging.DEBUG)
+    setup_commandline_commands()
     args = sys.argv[1:]
-    _group.main(args=args, prog_name='mara')
+    cli.main(args=args, prog_name='mara')
+
+
+@cli.command()
+def print_config():
+    """Prints the current config"""
+    from .config_system import print_config
+    print_config()
 
 
 if __name__ == '__main__':
-    main()
+    cli()

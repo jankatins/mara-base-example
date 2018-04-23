@@ -1,53 +1,77 @@
+import collections
+import copy
 import logging
+import sys
 import types
-
-import entrypoints
+import typing
+import itertools
 
 log = logging.getLogger(__name__)
 
 
 # Contributing the config stuff to the FLASK APP
-class _bp():
-    def __iter__(self):
-        import mara_base.config.view as view
-        return iter([view.mara_config])
+
+def MARA_FLASK_BLUEPRINTS():
+    from .config_system import view as view
+    yield view.mara_config
 
 
-MARA_FLASK_BLUEPRINTS = _bp()
+def MARA_ACL_RESOURCES():
+    from .config_system import view as view
+    yield view.acl_resource
 
 
-class _acl():
-    def __iter__(self):
-        import mara_base.config.view as view
-        return iter([view.acl_resource])
+def MARA_NAVIGATION_ENTRY_FNS():
+    from .config_system import view as view
+    yield view.navigation_entry_fns
 
-
-MARA_ACL_RESOURCES = _acl()
-
-
-class _nav():
-    def __iter__(self):
-        import mara_base.config.view as view
-        return iter([view.navigation_entry])
-
-
-MARA_NAVIGATION_ENTRY_FNS = _nav()
 
 # The main API functionality
-_register_funcs = []
+_mara_configuration: {str: list} = collections.defaultdict(list)
 
 
-def register_all_in_module(self, module: types.ModuleType):
-    """Registers all declared functionality with the installed extension points
-    """
-    if not _register_funcs:
-        for ep in entrypoints.get_group_all('mara_base.mara_consumer'):
-            try:
-                register_func = ep.load()
-            except Exception:
-                log.exception('Error loading register function')
-            else:
-                _register_funcs.append(register_func)
+def register_all_in_module(module: types.ModuleType):
+    """Registers all declared functionality"""
+    for attr in dir(module):
+        if attr.startswith('MARA_'):
+            items = getattr(module, attr)
+            assert (callable(items) or isinstance(items, typing.Iterable))
+            _mara_configuration[attr].append((module, items))
 
-    for register_func in _register_funcs:
-        register_func(module)
+
+def get_flattend_configuration(name: str) -> typing.Iterable:
+    all_items = _mara_configuration[name]
+    for module, items in all_items:
+        if callable(items):
+            # a generator
+            yield from zip(itertools.repeat(module), items())
+        else:
+            # lists and so on
+            yield from zip(itertools.repeat(module), items)
+
+
+def register_all_imported_modules():
+    for name, module in copy.copy(sys.modules).items():
+        register_all_in_module(module)
+
+def _call_app_composing_function():
+    import importlib
+    from .config import default_app_module
+    app_module_name = default_app_module()
+    try:
+        app = importlib.import_module(app_module_name)
+    except ModuleNotFoundError:
+        log.error("MARA_DEFAULT_APP (%s) is not an importable module.", app_module_name)
+        return
+    if not hasattr(app, 'compose_app'):
+        log.error("MARA_DEFAULT_APP (%s) has no 'compose_app() function.", app_module_name)
+        return
+    compose_app = getattr(app, 'compose_app')
+    log.debug("About to call '%s.compose_app()'", app_module_name)
+    try:
+        compose_app()
+    except BaseException:
+        log.exception("Calling '%s.compose_app()' resulted in an exception")
+        return
+    log.debug("Finished '%s.compose_app()'", app_module_name)
+    return

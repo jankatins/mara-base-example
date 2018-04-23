@@ -4,11 +4,11 @@ import html
 import pprint
 import sys
 
-from mara_page import acl
-from mara_base.config import get_get_current_config
-
 import flask
+from mara_page import acl
 from mara_page import navigation, response, _, bootstrap
+
+from . import get_get_current_config
 
 mara_config = flask.Blueprint('mara_config', __name__, url_prefix='/config2', static_folder='static')
 
@@ -48,7 +48,7 @@ def configuration_page():
         title='Mara Configuration')
 
 
-def navigation_entry():
+def navigation_entry_fns():
     return [navigation.NavigationEntry('Configuration',
                                        uri_fn=lambda: flask.url_for('.configuration_page'),
                                        icon='cogs', rank=100),

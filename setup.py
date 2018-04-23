@@ -6,8 +6,6 @@ setup(
 
     description="Mara base framework with the cli app and some base API modules.",
 
-    install_requires=[ 'entrypoints'
-    ],
 
     extras_require={
         'test': ['pytest',
@@ -27,9 +25,6 @@ setup(
         'console_scripts': [
             'mara = mara_base.cli:main',
         ],
-        'mara_base.mara_consumer': [
-            'cli = mara_base.cli:register_declared_commands',
-        ]
     },
 
 )

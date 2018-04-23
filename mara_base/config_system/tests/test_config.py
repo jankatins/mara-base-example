@@ -1,4 +1,4 @@
-from mara_base.config import replace, replaceable, add_config_from_environment, _reset_config
+from .. import replace, replaceable, add_config_from_environment, _reset_config
 import pytest
 
 
