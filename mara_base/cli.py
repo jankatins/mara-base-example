@@ -36,9 +36,8 @@ def cli(debug: bool):
     pass
 
 def setup_commandline_commands():
-    """Needs to be run befor click itself is run so the config which contributes click comamnds is available"""
+    """Needs to be run before click itself is run so the config which contributes click commands is available"""
     debug = '--debug' in sys.argv
-    print(debug)
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)s, %(name)s: %(message)s',
                         datefmt='%Y-%m-%dT%H:%M:%S',
@@ -55,10 +54,15 @@ def setup_commandline_commands():
     add_config_from_environment()
 
     # we try the second mechanism as well
-    from .config import debug
-    if debug():
+    from .config import debug as configured_debug
+    if configured_debug():
         logging.root.setLevel(logging.DEBUG)
         log.debug("Enabled debug output via config")
+
+    # overwrite any config system with commandline debug switch
+    if debug and not configured_debug():
+        from .config_system import replace
+        replace('debug', function = lambda: True)
 
     from . import _call_app_composing_function
     _call_app_composing_function()
